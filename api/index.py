@@ -7,39 +7,64 @@ app = Flask(__name__)
 CORS(app)
 
 def extract_video_id(url):
-    patterns = [r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([A-Za-z0-9_-]{11})']
+    patterns = [r'(?:youtube\.com/watch\?v=|youtu\.be/)([A-Za-z0-9_-]{11})']
     for p in patterns:
         m = re.search(p, url)
-        if m: return m.group(1)
+        if m:
+            return m.group(1)
     return None
 
-@app.route('/api/search', methods=['GET'])
+@app.route('/api/search')
 def search():
-    query = request.args.get('q')
-    if not query: return jsonify([])
-    ydl_opts = {'quiet': True, 'noplaylist': True, 'extract_flat': True, 'socket_timeout': 5}
+    q = request.args.get('q')
+    if not q:
+        return jsonify([])
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch5:{query}", download=False)
-            return jsonify([{
-                'id': e['id'], 'title': e['title'], 'channel': e['uploader'],
-                'thumbnail': f"https://i.ytimg.com/vi/{e['id']}/mqdefault.jpg",
-                'url': f"https://www.youtube.com/watch?v={e['id']}"
-            } for e in info.get('entries', [])])
-    except: return jsonify([])
+        with yt_dlp.YoutubeDL({
+            'quiet': True,
+            'extract_flat': True,
+            'socket_timeout': 3
+        }) as ydl:
+            info = ydl.extract_info(f"ytsearch2:{q}", download=False)
+
+        return jsonify([
+            {
+                "id": e["id"],
+                "title": e["title"],
+                "channel": e.get("uploader"),
+                "thumbnail": f"https://i.ytimg.com/vi/{e['id']}/mqdefault.jpg",
+                "url": f"https://youtu.be/{e['id']}"
+            } for e in info["entries"]
+        ])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/resolve', methods=['POST'])
 def resolve():
+    data = request.get_json()
+    url = data.get("url")
+
+    vid = extract_video_id(url)
+    if not vid:
+        return jsonify({"error": "invalid url"}), 400
+
     try:
-        data = request.get_json()
-        url, quality = data.get('url'), data.get('quality', '720')
-        vid = extract_video_id(url)
-        if not vid: return jsonify({'error': 'URL 무효'}), 400
-        ydl_opts = {'quiet': True, 'skip_download': True, 'socket_timeout': 7,
-                    'format': f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best'}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL({
+            'quiet': True,
+            'skip_download': True,
+            'format': 'best',
+            'socket_timeout': 3
+        }) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
-            audio_url = next((f['url'] for f in info.get('formats', []) if f.get('acodec')!='none' and f.get('vcodec')=='none'), info.get('url'))
-            return jsonify({'id': vid, 'title': info.get('title'), 'channel': info.get('uploader'),
-                            'thumbnail': info.get('thumbnail'), 'stream_url': info.get('url'), 'audio_url': audio_url})
-    except: return jsonify({'error': 'Timeout'}), 500
+
+        return jsonify({
+            "id": vid,
+            "title": info.get("title"),
+            "channel": info.get("uploader"),
+            "thumbnail": info.get("thumbnail"),
+            "stream_url": info.get("url")
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

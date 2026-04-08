@@ -166,14 +166,22 @@ async function resolveUrl(url, mode = 'video') {
   return data;
 }
 
-// 검색결과 클릭 → resolve → 재생 + currentItemForSave에 stream_url 저장
+// resolve가 돌려주는 stream_url은 /api/stream?v=... 상대경로
+// → Render 절대경로로 변환
+function toAbsoluteStreamUrl(path) {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  return `${API_BASE}${path}`;
+}
+
+// 검색결과 클릭 → resolve → Render 프록시로 재생
 window.playFromSearch = async (idx) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
   const item = window._searchResults?.[idx];
   if (!item) return;
 
-  const playerView = document.getElementById('playerView');
-  const playerTitle = document.getElementById('playerTitle');
+  const playerView    = document.getElementById('playerView');
+  const playerTitle   = document.getElementById('playerTitle');
   const playerChannel = document.getElementById('playerChannel');
 
   playerView.classList.remove('hidden');
@@ -184,23 +192,23 @@ window.playFromSearch = async (idx) => {
 
   try {
     const data = await resolveUrl(item.url, 'video');
-    playerTitle.textContent = data.title || '';
+    playerTitle.textContent   = data.title   || '';
     playerChannel.textContent = data.channel || '';
 
-    // stream_url까지 저장해둠 → 저장 시 재요청 불필요
+    const streamUrl = toAbsoluteStreamUrl(data.stream_url);
+
+    // Firebase엔 YouTube 원본 url만 저장 (stream_url 만료 무관)
     currentItemForSave = {
-      id:         data.id,
-      title:      data.title,
-      channel:    data.channel || '',
-      thumbnail:  data.thumbnail || '',
-      url:        item.url,
-      stream_url: data.stream_url || '',
-      audio_url:  data.audio_url || '',
+      id:        data.id,
+      title:     data.title,
+      channel:   data.channel   || '',
+      thumbnail: data.thumbnail || '',
+      url:       item.url,
     };
 
     audioEl.style.display = 'none';
     videoEl.style.display = 'block';
-    videoEl.src = data.stream_url;
+    videoEl.src = streamUrl;   // Render 프록시 경유
     videoEl.play().catch(() => {});
     playerView.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
@@ -210,59 +218,30 @@ window.playFromSearch = async (idx) => {
   }
 };
 
-// 보관함에서 재생 — DB에 저장된 stream_url 바로 사용 (Render 요청 없음)
-window.playFromLibrary = (encodedStreamUrl, encodedAudioUrl, encodedTitle, encodedChannel, tabType) => {
+// + 버튼: 재생 여부 상관없이 바로 모달
+window.openSaveModalFromSearch = async (idx) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
+  const item = window._searchResults?.[idx];
+  if (!item) return;
 
-  const streamUrl = decodeURIComponent(encodedStreamUrl);
-  const audioUrl  = decodeURIComponent(encodedAudioUrl);
-  const title     = decodeURIComponent(encodedTitle);
-  const channel   = decodeURIComponent(encodedChannel);
-
-  if (!streamUrl) {
-    showToast("저장된 스트림이 만료됐어요. 다시 추가해주세요");
+  if (currentItemForSave && currentItemForSave.url === item.url) {
+    document.getElementById('saveModal').classList.remove('hidden');
     return;
   }
 
-  const playerView = document.getElementById('playerView');
-  const playerTitle = document.getElementById('playerTitle');
-  const playerChannel = document.getElementById('playerChannel');
-
-  playerView.classList.remove('hidden');
-  playerTitle.textContent = title;
-  playerChannel.textContent = channel;
-  videoEl.pause(); videoEl.src = '';
-  audioEl.pause(); audioEl.src = '';
-
-  if (tabType === 'music' && audioUrl) {
-    audioEl.style.display = 'block';
-    videoEl.style.display = 'none';
-    audioEl.src = audioUrl;
-    audioEl.play().catch(() => {});
-  } else {
-    videoEl.style.display = 'block';
-    audioEl.style.display = 'none';
-    videoEl.src = streamUrl;
-    videoEl.play().catch(() => {});
-  }
-  playerView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 검색결과 기본 정보만으로 세팅 (stream_url 불필요)
+  currentItemForSave = {
+    id:        item.id,
+    title:     item.title,
+    channel:   item.channel   || '',
+    thumbnail: item.thumbnail || '',
+    url:       item.url,
+  };
+  document.getElementById('saveModal').classList.remove('hidden');
 };
 
 document.getElementById('saveFromPlayer').onclick = () => {
   if (!currentItemForSave) return;
-  document.getElementById('saveModal').classList.remove('hidden');
-};
-
-window.openSaveModalFromSearch = (idx) => {
-  if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
-  const item = window._searchResults?.[idx];
-  if (!item) return;
-  // 아직 재생 안 했으면 stream_url 없음 → 재생 후 저장 버튼 유도
-  if (!currentItemForSave || currentItemForSave.id !== item.id) {
-    showToast("먼저 영상을 재생한 뒤 저장해주세요");
-    playFromSearch(idx);
-    return;
-  }
   document.getElementById('saveModal').classList.remove('hidden');
 };
 
@@ -273,21 +252,19 @@ document.getElementById('saveModal').onclick = (e) => {
   if (e.target === document.getElementById('saveModal')) closeModal();
 };
 
-// stream_url 이미 있으니 resolve 재요청 없이 바로 저장
+// Firebase엔 YouTube url만 저장 (stream_url 저장 안 함)
 window.saveToTab = async (tab) => {
   if (!currentItemForSave || !currentUser) return;
   closeModal();
   showToast("저장 중...");
   try {
     await addDoc(collection(db, "users", currentUser, tab), {
-      id:         currentItemForSave.id || '',
-      title:      currentItemForSave.title || '',
-      channel:    currentItemForSave.channel || '',
-      thumbnail:  currentItemForSave.thumbnail || '',
-      url:        currentItemForSave.url || '',
-      stream_url: currentItemForSave.stream_url || '',
-      audio_url:  currentItemForSave.audio_url || '',
-      addedAt:    serverTimestamp(),
+      id:        currentItemForSave.id        || '',
+      title:     currentItemForSave.title     || '',
+      channel:   currentItemForSave.channel   || '',
+      thumbnail: currentItemForSave.thumbnail || '',
+      url:       currentItemForSave.url       || '',
+      addedAt:   serverTimestamp(),
     });
 
     const labels = { videos: '동영상', music: '노래', offline: '오프라인' };
@@ -298,12 +275,70 @@ window.saveToTab = async (tab) => {
   }
 };
 
+// 보관함 재생: url로 re-resolve → Render 프록시로 스트리밍
+window.playFromLibrary = async (encodedUrl, encodedTitle, encodedChannel, encodedThumbnail, tabType) => {
+  if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
+
+  const url       = decodeURIComponent(encodedUrl);
+  const title     = decodeURIComponent(encodedTitle);
+  const channel   = decodeURIComponent(encodedChannel);
+  const thumbnail = decodeURIComponent(encodedThumbnail);
+
+  if (!url) { showToast("저장된 URL이 없어요. 다시 추가해주세요"); return; }
+
+  const playerView    = document.getElementById('playerView');
+  const playerTitle   = document.getElementById('playerTitle');
+  const playerChannel = document.getElementById('playerChannel');
+
+  playerView.classList.remove('hidden');
+  playerTitle.textContent   = title || '불러오는 중...';
+  playerChannel.textContent = channel;
+  videoEl.pause(); videoEl.src = '';
+  audioEl.pause(); audioEl.src = '';
+
+  try {
+    const mode = tabType === 'music' ? 'music' : 'video';
+    const data = await resolveUrl(url, mode);
+
+    playerTitle.textContent   = data.title   || title;
+    playerChannel.textContent = data.channel || channel;
+
+    const streamUrl = toAbsoluteStreamUrl(data.stream_url);
+    const audioUrl  = toAbsoluteStreamUrl(data.audio_url);
+
+    currentItemForSave = {
+      id:        data.id,
+      title:     data.title   || title,
+      channel:   data.channel || channel,
+      thumbnail: data.thumbnail || thumbnail,
+      url,
+    };
+
+    if (tabType === 'music') {
+      audioEl.style.display = 'block';
+      videoEl.style.display = 'none';
+      audioEl.src = audioUrl;
+      audioEl.play().catch(() => {});
+    } else {
+      videoEl.style.display = 'block';
+      audioEl.style.display = 'none';
+      videoEl.src = streamUrl;
+      videoEl.play().catch(() => {});
+    }
+    playerView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    showToast("영상을 불러올 수 없어요");
+    playerView.classList.add('hidden');
+    console.error(err);
+  }
+};
+
 function loadLibrary(tab) {
   if (!currentUser) return;
   currentTab = tab;
   if (libUnsubscribe) { libUnsubscribe(); libUnsubscribe = null; }
 
-  const listEl = document.getElementById('libraryList');
+  const listEl  = document.getElementById('libraryList');
   const emptyEl = document.getElementById('emptyLib');
   listEl.innerHTML = '<div class="loading-center"><div class="spinner"></div></div>';
   emptyEl.classList.add('hidden');
@@ -319,12 +354,12 @@ function loadLibrary(tab) {
       emptyEl.classList.add('hidden');
       listEl.innerHTML = snap.docs.map(d => {
         const item = d.data();
-        const sUrl = encodeURIComponent(item.stream_url || '');
-        const aUrl = encodeURIComponent(item.audio_url || item.stream_url || '');
-        const title = encodeURIComponent(item.title || '');
-        const channel = encodeURIComponent(item.channel || '');
+        const eUrl       = encodeURIComponent(item.url || '');
+        const eTitle     = encodeURIComponent(item.title || '');
+        const eChannel   = encodeURIComponent(item.channel || '');
+        const eThumbnail = encodeURIComponent(item.thumbnail || '');
         return `
-          <div class="lib-item" onclick="playFromLibrary('${sUrl}','${aUrl}','${title}','${channel}','${tab}')">
+          <div class="lib-item" onclick="playFromLibrary('${eUrl}','${eTitle}','${eChannel}','${eThumbnail}','${tab}')">
             <img class="lib-thumb" src="${item.thumbnail || ''}" alt="" loading="lazy">
             <div class="lib-text">
               <div class="lib-title">${escHtml(item.title || '')}</div>

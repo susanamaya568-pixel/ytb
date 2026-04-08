@@ -28,9 +28,17 @@ def search():
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
+        'skip_download': True,
         'noplaylist': True,
-        'extract_flat': True,
-        'socket_timeout': 8,
+        'socket_timeout': 5,  # 8 → 5
+        'format': 'best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best',
+        'extractor_args': {
+            'youtube': {
+                'skip': ['hls', 'dash', 'translated_subs'],
+                'player_client': ['android'],  # ← 이거 추가, android가 제일 빠름
+            }
+        },
+        'geo_bypass': True,
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

@@ -83,13 +83,32 @@ def get_stream_info(canonical, mode):
                     return info
         except yt_dlp.utils.DownloadError as e:
             msg = str(e)
-            if any(k in msg for k in ['Sign in', 'age', 'private', 'Private', 'members']):
+            if any(k in msg for k in ['age', 'private', 'Private', 'members']):
                 raise
             last_err = e
             continue
         except Exception as e:
             last_err = e
             continue
+
+    # 모든 클라이언트 실패시 포맷 지정 없이 재시도
+    try:
+        opts = {
+            **YDL_BASE_OPTS,
+            'extractor_args': {
+                'youtube': {
+                    'skip': ['hls', 'dash', 'translated_subs'],
+                    'player_client': ['tv_embedded', 'ios'],
+                }
+            },
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(canonical, download=False)
+            if info:
+                return info
+    except Exception as e:
+        last_err = e
+
     raise last_err or Exception('모든 클라이언트 시도 실패')
 
 
@@ -194,8 +213,8 @@ def resolve():
     except yt_dlp.utils.DownloadError as e:
         msg = str(e)
         print(f"[resolve DownloadError] {msg}")
-        if any(k in msg for k in ['Sign in', 'age']):
-            return jsonify({'error': '연령 제한 또는 로그인이 필요한 영상입니다'}), 403
+        if any(k in msg for k in ['age']):
+            return jsonify({'error': '연령 제한 영상입니다'}), 403
         if any(k in msg for k in ['Private', 'private']):
             return jsonify({'error': '비공개 영상입니다'}), 403
         if 'members' in msg:
@@ -263,10 +282,10 @@ def stream():
             'audio/mp4' if mode == 'music' else 'video/mp4'
         )
         resp_headers = {
-            'Content-Type':                 content_type,
-            'Accept-Ranges':                'bytes',
-            'Access-Control-Allow-Origin':  '*',
-            'Cache-Control':                'no-cache',
+            'Content-Type':                content_type,
+            'Accept-Ranges':               'bytes',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control':               'no-cache',
         }
         if 'Content-Length' in yt_resp.headers:
             resp_headers['Content-Length'] = yt_resp.headers['Content-Length']

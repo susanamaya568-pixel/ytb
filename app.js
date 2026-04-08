@@ -183,7 +183,6 @@ window.playFromSearch = async (idx) => {
 
   try {
     const data = await resolveUrl(item.url, 'video');
-
     playerTitle.textContent = data.title || '';
     playerChannel.textContent = data.channel || '';
     currentItemForSave = { ...data, url: item.url };
@@ -200,34 +199,45 @@ window.playFromSearch = async (idx) => {
   }
 };
 
-window.playFromLibrary = (streamUrl, audioUrl, title, channel, tabType) => {
+// 보관함에서 재생 — url로 다시 resolve
+window.playFromLibrary = async (encodedUrl, tabType) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
+  const url = decodeURIComponent(encodedUrl);
 
   const playerView = document.getElementById('playerView');
   const playerTitle = document.getElementById('playerTitle');
   const playerChannel = document.getElementById('playerChannel');
 
   playerView.classList.remove('hidden');
-  playerTitle.textContent = title || '';
-  playerChannel.textContent = channel || '';
+  playerTitle.textContent = '불러오는 중...';
+  playerChannel.textContent = '';
   videoEl.pause(); videoEl.src = '';
   audioEl.pause(); audioEl.src = '';
 
-  const isMusicTab = tabType === 'music';
+  try {
+    const mode = tabType === 'music' ? 'music' : 'video';
+    const data = await resolveUrl(url, mode);
+    playerTitle.textContent = data.title || '';
+    playerChannel.textContent = data.channel || '';
+    currentItemForSave = { ...data, url };
 
-  if (isMusicTab && audioUrl) {
-    audioEl.style.display = 'block';
-    videoEl.style.display = 'none';
-    audioEl.src = audioUrl;
-    audioEl.play().catch(() => {});
-  } else {
-    videoEl.style.display = 'block';
-    audioEl.style.display = 'none';
-    videoEl.src = streamUrl;
-    videoEl.play().catch(() => {});
+    if (tabType === 'music') {
+      audioEl.style.display = 'block';
+      videoEl.style.display = 'none';
+      audioEl.src = data.audio_url || data.stream_url;
+      audioEl.play().catch(() => {});
+    } else {
+      videoEl.style.display = 'block';
+      audioEl.style.display = 'none';
+      videoEl.src = data.stream_url;
+      videoEl.play().catch(() => {});
+    }
+    playerView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    showToast("영상을 불러올 수 없어요");
+    playerView.classList.add('hidden');
+    console.error(err);
   }
-
-  playerView.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 document.getElementById('saveFromPlayer').onclick = () => {
@@ -256,26 +266,22 @@ document.getElementById('saveModal').onclick = (e) => {
   if (e.target === document.getElementById('saveModal')) closeModal();
 };
 
+// resolve 없이 url만 저장
 window.saveToTab = async (tab) => {
   if (!currentItemForSave || !currentUser) return;
   closeModal();
   showToast("저장 중...");
   try {
-    const mode = tab === 'music' ? 'music' : 'video';
     const url = currentItemForSave.url ||
       `https://www.youtube.com/watch?v=${currentItemForSave.id}`;
 
-    const data = await resolveUrl(url, mode);
-
     await addDoc(collection(db, "users", currentUser, tab), {
-      id:         data.id,
-      title:      data.title,
-      channel:    data.channel || '',
-      thumbnail:  data.thumbnail || '',
-      url:        url,
-      stream_url: data.stream_url || '',
-      audio_url:  data.audio_url || '',
-      addedAt:    serverTimestamp(),
+      id:        currentItemForSave.id || '',
+      title:     currentItemForSave.title || '',
+      channel:   currentItemForSave.channel || '',
+      thumbnail: currentItemForSave.thumbnail || '',
+      url:       url,
+      addedAt:   serverTimestamp(),
     });
 
     const labels = { videos: '동영상', music: '노래', offline: '오프라인' };
@@ -307,12 +313,9 @@ function loadLibrary(tab) {
       emptyEl.classList.add('hidden');
       listEl.innerHTML = snap.docs.map(d => {
         const item = d.data();
-        const sUrl = encodeURIComponent(item.stream_url || '');
-        const aUrl = encodeURIComponent(item.audio_url || item.stream_url || '');
-        const title = encodeURIComponent(item.title || '');
-        const channel = encodeURIComponent(item.channel || '');
+        const encodedUrl = encodeURIComponent(item.url || `https://www.youtube.com/watch?v=${item.id}`);
         return `
-          <div class="lib-item" onclick="playFromLibrary('${sUrl}','${aUrl}','${decodeURIComponent(title)}','${decodeURIComponent(channel)}','${tab}')">
+          <div class="lib-item" onclick="playFromLibrary('${encodedUrl}','${tab}')">
             <img class="lib-thumb" src="${item.thumbnail || ''}" alt="" loading="lazy">
             <div class="lib-text">
               <div class="lib-title">${escHtml(item.title || '')}</div>

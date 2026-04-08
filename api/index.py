@@ -7,6 +7,7 @@ import traceback
 app = Flask(__name__)
 CORS(app)
 
+
 def extract_video_id(url):
     patterns = [
         r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([A-Za-z0-9_-]{11})'
@@ -16,6 +17,7 @@ def extract_video_id(url):
         if m:
             return m.group(1)
     return None
+
 
 @app.route('/api/search', methods=['GET'])
 def search():
@@ -47,8 +49,8 @@ def search():
             return jsonify(results)
     except Exception as e:
         print(f"[search error] {e}")
-        traceback.print_exc()
         return jsonify([])
+
 
 @app.route('/api/resolve', methods=['POST'])
 def resolve():
@@ -58,7 +60,7 @@ def resolve():
             return jsonify({'error': '요청 데이터 없음'}), 400
 
         url = data.get('url', '').strip()
-        mode = data.get('mode', 'video')  # 'video' or 'music'
+        mode = data.get('mode', 'video')
 
         if not url:
             return jsonify({'error': 'URL이 없습니다'}), 400
@@ -67,72 +69,51 @@ def resolve():
         if not vid:
             return jsonify({'error': '유효하지 않은 YouTube URL'}), 400
 
-        # 음악 모드: 오디오만 추출 (가볍고 빠름)
-        if mode == 'music':
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True,
-                'socket_timeout': 10,
-                'format': 'bestaudio[ext=m4a]/bestaudio/best',
-            }
-        else:
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True,
-                'socket_timeout': 10,
-                'format': (
-                    'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]'
-                    '/bestvideo[height<=720]+bestaudio'
-                    '/best[height<=720]'
-                    '/best'
-                ),
-            }
+        canonical = f'https://www.youtube.com/watch?v={vid}'
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'noplaylist': True,
+            'socket_timeout': 8,
+            # best[ext=mp4]/best 로 포맷 하나만 → 처리 최소화
+            'format': 'best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best',
+            'extractor_args': {
+                'youtube': {
+                    'skip': ['hls', 'dash', 'translated_subs'],
+                    'player_skip': ['webpage', 'configs', 'js'],
+                }
+            },
+            'geo_bypass': True,
+        }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(
-                f"https://www.youtube.com/watch?v={vid}",
-                download=False
-            )
+            info = ydl.extract_info(canonical, download=False)
 
-        formats = info.get('formats', [])
-
-        # audio_url: 오디오 전용 포맷에서 가장 좋은 것
-        audio_url = ''
-        best_abr = 0
-        for f in formats:
-            if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
-                abr = f.get('abr') or 0
-                if abr > best_abr and f.get('url'):
-                    audio_url = f['url']
-                    best_abr = abr
-        
-        # stream_url: 영상+오디오 합본 or fallback
         stream_url = info.get('url', '')
         if not stream_url:
-            # formats에서 video+audio 합본 찾기
-            for f in reversed(formats):
-                if (f.get('acodec') != 'none' 
-                    and f.get('vcodec') != 'none'
-                    and f.get('url')):
+            for f in reversed(info.get('formats', [])):
+                if f.get('url'):
                     stream_url = f['url']
                     break
-        
-        # 둘 다 없으면 오디오라도
-        if not stream_url:
-            stream_url = audio_url
 
-        if not audio_url:
-            audio_url = stream_url
+        if not stream_url:
+            return jsonify({'error': '스트림 URL을 가져올 수 없습니다'}), 500
+
+        audio_url = stream_url
+        for f in info.get('formats', []):
+            if f.get('acodec') != 'none' and f.get('vcodec') == 'none' and f.get('url'):
+                audio_url = f['url']
+                break
 
         return jsonify({
-            'id': vid,
-            'title': info.get('title', ''),
-            'channel': info.get('uploader') or info.get('channel', ''),
-            'thumbnail': info.get('thumbnail', f'https://i.ytimg.com/vi/{vid}/maxresdefault.jpg'),
+            'id':         vid,
+            'title':      info.get('title', ''),
+            'channel':    info.get('uploader') or info.get('channel', ''),
+            'thumbnail':  info.get('thumbnail', f'https://i.ytimg.com/vi/{vid}/mqdefault.jpg'),
             'stream_url': stream_url,
-            'audio_url': audio_url,
+            'audio_url':  audio_url,
         })
 
     except yt_dlp.utils.DownloadError as e:
@@ -148,5 +129,6 @@ def resolve():
         print(f"[resolve error] {e}")
         traceback.print_exc()
         return jsonify({'error': '서버 오류가 발생했어요'}), 500
+
 
 handler = app

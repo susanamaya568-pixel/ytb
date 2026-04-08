@@ -4,6 +4,7 @@ import yt_dlp
 import re
 import traceback
 import requests
+import os
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {
@@ -11,6 +12,18 @@ CORS(app, resources={r"/api/*": {
     "methods": ["GET", "POST", "OPTIONS"],
     "allow_headers": ["Content-Type", "Authorization"]
 }})
+
+COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+
+YDL_BASE_OPTS = {
+    'quiet': True,
+    'no_warnings': True,
+    'skip_download': True,
+    'noplaylist': True,
+    'socket_timeout': 15,
+    'geo_bypass': True,
+    'cookiefile': COOKIE_FILE if os.path.exists(COOKIE_FILE) else None,
+}
 
 
 @app.before_request
@@ -33,15 +46,6 @@ def extract_video_id(url):
             return m.group(1)
     return None
 
-
-YDL_BASE_OPTS = {
-    'quiet': True,
-    'no_warnings': True,
-    'skip_download': True,
-    'noplaylist': True,
-    'socket_timeout': 15,
-    'geo_bypass': True,
-}
 
 CLIENT_FALLBACKS = [
     (['tv_embedded'],        {'skip': ['hls', 'dash', 'translated_subs']}),
@@ -101,6 +105,7 @@ def search():
         'noplaylist': True,
         'extract_flat': True,
         'socket_timeout': 10,
+        'cookiefile': COOKIE_FILE if os.path.exists(COOKIE_FILE) else None,
         'extractor_args': {
             'youtube': {
                 'player_client': ['tv_embedded'],

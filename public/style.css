@@ -1,92 +1,32 @@
-body {
-  margin: 0;
-  font-family: sans-serif;
-  background: #0f0f0f;
-  color: #fff;
+body { margin:0; background:#0f0f0f; color:#fff; font-family:sans-serif; }
+
+.header { padding:10px; }
+.search-bar { display:flex; background:#222; border-radius:20px; padding:5px; }
+
+input { flex:1; border:none; background:none; color:white; }
+
+#list { display:grid; grid-template-columns:1fr; gap:10px; padding:10px; }
+
+@media (min-width:700px){
+  #list { grid-template-columns:repeat(2,1fr); }
 }
 
-.header {
-  padding: 10px;
-  background: #0f0f0f;
-  position: sticky;
-  top: 0;
-}
+.item-card img { width:100%; aspect-ratio:16/9; }
 
-.search-bar {
-  display: flex;
-  background: #222;
-  border-radius: 20px;
-  padding: 5px 10px;
-}
-
-input {
-  flex: 1;
-  border: none;
-  background: transparent;
-  color: white;
-}
-
-.item-card {
-  margin-bottom: 20px;
-  cursor: pointer;
-}
-
-.item-thumb {
-  width: 100%;
-  aspect-ratio: 16/9;
-  object-fit: cover;
-}
-
-.item-title {
-  font-size: 14px;
-  margin-top: 5px;
+.mini-player {
+  position:fixed;
+  bottom:60px;
+  left:0; right:0;
+  background:#111;
+  display:flex;
+  align-items:center;
 }
 
 .bottom-nav {
-  position: fixed;
-  bottom: 0;
-  width: 100%;
-  display: flex;
-  background: #111;
-  border-top: 1px solid #333;
+  position:fixed;
+  bottom:0;
+  width:100%;
+  display:flex;
+  background:#111;
 }
-
-.bottom-nav button {
-  flex: 1;
-  padding: 10px;
-  color: #aaa;
-  background: none;
-  border: none;
-}
-
-.bottom-nav button.active {
-  color: red;
-}
-
-#list {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-  padding: 10px;
-}
-
-/* 태블릿 */
-@media (min-width: 600px) {
-  #list {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-/* 노트북 */
-@media (min-width: 900px) {
-  #list {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-/* 데스크탑 */
-@media (min-width: 1200px) {
-  #list {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
+.bottom-nav button { flex:1; color:#aaa; }

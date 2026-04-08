@@ -1,73 +1,70 @@
-let cache = {};
-let currentUser = localStorage.getItem("user") || "guest";
+let current = null;
 
-async function search() {
-  const q = document.getElementById("searchInput").value;
+// 검색
+async function search(){
+  const q = document.getElementById("q").value;
   const res = await fetch(`/api/search?q=${q}`);
   const data = await res.json();
 
-  document.getElementById("list").innerHTML =
-    data.map(v => `
-      <div class="item-card" onclick="play('${v.url}')">
-        <img class="item-thumb" src="${v.thumbnail}">
-        <div class="item-title">${v.title}</div>
-        <button onclick="event.stopPropagation(); save('${v.url}')">+</button>
-      </div>
-    `).join("");
+  list.innerHTML = data.map(v=>`
+    <div class="item-card" onclick="play('${v.url}')">
+      <img src="${v.thumbnail}">
+      <div>${v.title}</div>
+      <button onclick="event.stopPropagation();download('${v.url}')">⬇</button>
+    </div>
+  `).join('');
 }
 
-async function play(url) {
-  if (cache[url]) return render(cache[url]);
-
-  const res = await fetch("/api/resolve", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({url})
+// 재생
+async function play(url){
+  const res = await fetch('/api/resolve',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({url})
   });
-
   const data = await res.json();
-  if (data.error) return alert("실패");
+  current = data;
 
-  cache[url] = data;
-  render(data);
+  if(data.type==="stream"){
+    player.innerHTML=`<video src="${data.stream_url}" controls autoplay></video>`;
+  }else{
+    player.innerHTML=`<iframe src="${data.url}" allow="autoplay"></iframe>`;
+  }
+
+  showMini();
 }
 
-function render(v) {
-  document.getElementById("player").innerHTML = `
-    <video src="${v.stream_url}" controls autoplay style="width:100%"></video>
+// 미니 플레이어
+function showMini(){
+  mini.style.display="flex";
+  mini.innerHTML=`
+    <div>${current.title||'재생중'}</div>
+    <button onclick="player.innerHTML=''">X</button>
   `;
 }
 
-function save(url) {
-  let list = JSON.parse(localStorage.getItem("lib") || "[]");
-  list.push(url);
-  localStorage.setItem("lib", JSON.stringify(list));
-  alert("저장됨");
+// 다운로드 (stream만 가능)
+async function download(url){
+  const res = await fetch('/api/resolve',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({url})
+  });
+  const data = await res.json();
+
+  if(data.type!=="stream"){
+    alert("다운로드 불가");
+    return;
+  }
+
+  const blob = await fetch(data.stream_url).then(r=>r.blob());
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "video.mp4";
+  a.click();
 }
 
-function showLibrary() {
-  document.getElementById("list").style.display = "none";
-  const list = JSON.parse(localStorage.getItem("lib") || "[]");
-
-  document.getElementById("library").style.display = "block";
-  document.getElementById("library").innerHTML =
-    list.map(v => `
-      <div onclick="play('${v}')">
-        ${v}
-        <button onclick="del('${v}')">-</button>
-      </div>
-    `).join("");
-}
-
-function del(url) {
-  if (!confirm("삭제?")) return;
-  let list = JSON.parse(localStorage.getItem("lib") || "[]");
-  list = list.filter(v => v !== url);
-  localStorage.setItem("lib", JSON.stringify(list));
-  showLibrary();
-}
-
-function showHome() {
-  document.getElementById("list").style.display = "block";
-  document.getElementById("library").style.display = "none";
+// PWA 등록
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js');
 }

@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="style.css">
 </head>
 
@@ -9,20 +10,19 @@
 
 <div class="header">
   <div class="search-bar">
-    <input id="searchInput" placeholder="검색">
+    <input id="q">
     <button onclick="search()">🔍</button>
   </div>
 </div>
 
 <div id="player"></div>
-
 <div id="list"></div>
 
-<div id="library" style="display:none"></div>
+<div id="mini" class="mini-player" style="display:none"></div>
 
 <div class="bottom-nav">
   <button onclick="showHome()">홈</button>
-  <button onclick="showLibrary()">보관함</button>
+  <button onclick="showLib()">보관함</button>
 </div>
 
 <script src="app.js"></script>

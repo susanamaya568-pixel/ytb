@@ -44,3 +44,29 @@ def resolve():
             "type":"iframe",
             "url": f"https://www.youtube.com/embed/{vid}?autoplay=1&playsinline=1"
         })
+@app.route('/api/search')
+def search():
+    q = request.args.get('q')
+    if not q:
+        return jsonify([])
+
+    try:
+        with yt_dlp.YoutubeDL({
+            'quiet': True,
+            'extract_flat': True,
+            'socket_timeout': 2
+        }) as ydl:
+            info = ydl.extract_info(f"ytsearch2:{q}", download=False)
+
+        return jsonify([
+            {
+                "id": e["id"],
+                "title": e["title"],
+                "thumbnail": f"https://i.ytimg.com/vi/{e['id']}/mqdefault.jpg",
+                "url": f"https://youtu.be/{e['id']}"
+            } for e in info.get("entries", [])
+        ])
+
+    except Exception as e:
+        print("SEARCH ERROR:", str(e))
+        return jsonify([])  # 🔥 절대 500 안터지게

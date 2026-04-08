@@ -58,7 +58,7 @@ def resolve():
             return jsonify({'error': '요청 데이터 없음'}), 400
 
         url = data.get('url', '').strip()
-        quality = data.get('quality', '720')
+        mode = data.get('mode', 'video')  # 'video' or 'music'
 
         if not url:
             return jsonify({'error': 'URL이 없습니다'}), 400
@@ -67,19 +67,28 @@ def resolve():
         if not vid:
             return jsonify({'error': '유효하지 않은 YouTube URL'}), 400
 
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'socket_timeout': 10,
-            # 화질 선택: 지정 화질 mp4 우선, 없으면 best
-            'format': (
-                f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]'
-                f'/bestvideo[height<={quality}]+bestaudio'
-                f'/best[height<={quality}]'
-                f'/best'
-            ),
-        }
+        # 음악 모드: 오디오만 추출 (가볍고 빠름)
+        if mode == 'music':
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'socket_timeout': 10,
+                'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            }
+        else:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'socket_timeout': 10,
+                'format': (
+                    'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]'
+                    '/bestvideo[height<=720]+bestaudio'
+                    '/best[height<=720]'
+                    '/best'
+                ),
+            }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(
@@ -89,15 +98,31 @@ def resolve():
 
         formats = info.get('formats', [])
 
-        # stream_url: 영상+오디오가 합쳐진 URL (또는 best)
-        stream_url = info.get('url', '')
-
-        # audio_url: 오디오만 있는 포맷 우선 추출
+        # audio_url: 오디오 전용 포맷에서 가장 좋은 것
         audio_url = ''
+        best_abr = 0
         for f in formats:
             if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
-                audio_url = f.get('url', '')
-                break
+                abr = f.get('abr') or 0
+                if abr > best_abr and f.get('url'):
+                    audio_url = f['url']
+                    best_abr = abr
+        
+        # stream_url: 영상+오디오 합본 or fallback
+        stream_url = info.get('url', '')
+        if not stream_url:
+            # formats에서 video+audio 합본 찾기
+            for f in reversed(formats):
+                if (f.get('acodec') != 'none' 
+                    and f.get('vcodec') != 'none'
+                    and f.get('url')):
+                    stream_url = f['url']
+                    break
+        
+        # 둘 다 없으면 오디오라도
+        if not stream_url:
+            stream_url = audio_url
+
         if not audio_url:
             audio_url = stream_url
 
@@ -124,6 +149,4 @@ def resolve():
         traceback.print_exc()
         return jsonify({'error': '서버 오류가 발생했어요'}), 500
 
-# Vercel Serverless: handler 노출
-# Flask app이 handler 역할
 handler = app

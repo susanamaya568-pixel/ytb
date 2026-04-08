@@ -5,9 +5,6 @@ import {
   addDoc, serverTimestamp, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// ══════════════════════════════════════════
-//  Firebase 설정
-// ══════════════════════════════════════════
 const firebaseConfig = {
   apiKey: "AIzaSyAkDP9ZFuzcojt1nI81CZOHfs4DchNPGOA",
   authDomain: "ytbe-e6df1.firebaseapp.com",
@@ -20,9 +17,6 @@ const firebaseConfig = {
 
 const db = getFirestore(initializeApp(firebaseConfig));
 
-// ══════════════════════════════════════════
-//  상태
-// ══════════════════════════════════════════
 let currentUser = localStorage.getItem('yt_user');
 let currentTab = 'videos';
 let currentItemForSave = null;
@@ -30,9 +24,17 @@ let libUnsubscribe = null;
 
 const videoEl = document.getElementById('videoEl');
 
-// ══════════════════════════════════════════
-//  PIN 자동 이동
-// ══════════════════════════════════════════
+// 음악 전용 오디오 엘리먼트 동적 생성
+let audioEl = document.getElementById('audioEl');
+if (!audioEl) {
+  audioEl = document.createElement('audio');
+  audioEl.id = 'audioEl';
+  audioEl.controls = true;
+  audioEl.style.cssText = 'width:100%;display:none;background:#000;';
+  videoEl.parentNode.insertBefore(audioEl, videoEl.nextSibling);
+}
+
+// PIN 자동 이동
 const pins = ['p1','p2','p3','p4'].map(id => document.getElementById(id));
 pins.forEach((p, i) => {
   if (!p) return;
@@ -49,14 +51,11 @@ document.getElementById('nickInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') pins[0].focus();
 });
 
-// ══════════════════════════════════════════
-//  로그인
-// ══════════════════════════════════════════
+// 로그인
 document.getElementById('loginBtn').onclick = async () => {
   const nick = document.getElementById('nickInput').value.trim().toLowerCase();
   const pin = pins.map(p => p.value).join('');
   if (!nick || pin.length < 4) { showToast("닉네임과 PIN 4자리를 모두 입력하세요"); return; }
-
   try {
     const userRef = doc(db, "users", nick);
     const snap = await getDoc(userRef);
@@ -67,7 +66,6 @@ document.getElementById('loginBtn').onclick = async () => {
       return;
     }
     if (!snap.exists()) await setDoc(userRef, { pin, createdAt: new Date() });
-
     currentUser = nick;
     localStorage.setItem('yt_user', nick);
     document.getElementById('loginOverlay').classList.add('hidden');
@@ -82,9 +80,6 @@ if (currentUser) {
   document.getElementById('loginOverlay').classList.add('hidden');
 }
 
-// ══════════════════════════════════════════
-//  로그아웃
-// ══════════════════════════════════════════
 window.logout = () => {
   if (!confirm(`${currentUser}님, 로그아웃 하시겠어요?`)) return;
   localStorage.removeItem('yt_user');
@@ -94,9 +89,6 @@ window.logout = () => {
   pins.forEach(p => p.value = '');
 };
 
-// ══════════════════════════════════════════
-//  페이지 전환
-// ══════════════════════════════════════════
 window.showHome = () => {
   document.getElementById('homePage').style.display = 'block';
   document.getElementById('libraryPage').classList.add('hidden');
@@ -112,14 +104,11 @@ window.showLibrary = () => {
   loadLibrary(currentTab);
 };
 
-// ══════════════════════════════════════════
-//  검색
-// ══════════════════════════════════════════
+// 검색
 document.getElementById('searchBtn').onclick = doSearch;
 document.getElementById('searchInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
-
 document.getElementById('searchInput').addEventListener('focus', () => {
   if (!document.getElementById('libraryPage').classList.contains('hidden')) {
     showHome();
@@ -149,12 +138,10 @@ async function doSearch() {
 
     window._searchResults = results;
 
-    // ── 가로형 리스트 UI (썸네일 왼쪽, 텍스트+버튼 오른쪽) ──
     list.innerHTML = results.map((item, idx) => `
       <div class="feed-item feed-item--row" onclick="playUrl('${encodeURIComponent(item.url)}', this)">
         <img class="feed-thumb-sm" src="${item.thumbnail}" alt="" loading="lazy">
         <div class="feed-info-row">
-          <div class="feed-ch-dot">${item.channel ? item.channel[0].toUpperCase() : '?'}</div>
           <div class="feed-text">
             <div class="feed-title">${escHtml(item.title)}</div>
             <div class="feed-meta">${escHtml(item.channel)}</div>
@@ -173,11 +160,14 @@ async function doSearch() {
 }
 
 // ══════════════════════════════════════════
-//  재생
+//  재생 — 탭에 따라 video / audio 구분
+//  music 탭: audio 엘리먼트 (영상 데이터 없이 음원만)
+//  videos/offline 탭: video 엘리먼트
 // ══════════════════════════════════════════
 window.playUrl = async (encodedUrl, el) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
   const url = decodeURIComponent(encodedUrl);
+  const isMusicTab = currentTab === 'music';
 
   const playerView = document.getElementById('playerView');
   const playerTitle = document.getElementById('playerTitle');
@@ -186,24 +176,37 @@ window.playUrl = async (encodedUrl, el) => {
   playerView.classList.remove('hidden');
   playerTitle.textContent = '불러오는 중...';
   playerChannel.textContent = '';
-  videoEl.src = '';
+  videoEl.pause(); videoEl.src = '';
+  audioEl.pause(); audioEl.src = '';
 
   try {
     const res = await fetch('/api/resolve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
+      body: JSON.stringify({ url, mode: isMusicTab ? 'music' : 'video' })
     });
     if (!res.ok) throw new Error('resolve failed');
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    videoEl.src = data.stream_url;
     playerTitle.textContent = data.title || '';
     playerChannel.textContent = data.channel || '';
-    videoEl.play().catch(() => {});
-
     currentItemForSave = data;
+
+    if (isMusicTab) {
+      // 음악 탭: video 숨기고 audio만 재생
+      videoEl.style.display = 'none';
+      audioEl.style.display = 'block';
+      audioEl.src = data.audio_url || data.stream_url;
+      audioEl.play().catch(() => {});
+    } else {
+      // 동영상 탭: audio 숨기고 video 재생
+      audioEl.style.display = 'none';
+      videoEl.style.display = 'block';
+      videoEl.src = data.stream_url;
+      videoEl.play().catch(() => {});
+    }
+
     playerView.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     showToast("영상을 불러올 수 없어요 (서버 오류)");
@@ -217,9 +220,7 @@ document.getElementById('saveFromPlayer').onclick = () => {
   openSaveModal(currentItemForSave, null);
 };
 
-// ══════════════════════════════════════════
-//  보관함 저장 모달
-// ══════════════════════════════════════════
+// 보관함 저장 모달
 window.openSaveModalFromSearch = (idx) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
   const item = window._searchResults?.[idx];
@@ -229,14 +230,13 @@ window.openSaveModalFromSearch = (idx) => {
     title: item.title,
     channel: item.channel,
     thumbnail: item.thumbnail,
-    url: item.url,   // ← url 저장 (재생 시 사용)
+    url: item.url,
   };
   document.getElementById('saveModal').classList.remove('hidden');
 };
 
 window.openSaveModal = async (data, encodedUrl) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
-
   if (data) {
     currentItemForSave = data;
     document.getElementById('saveModal').classList.remove('hidden');
@@ -247,7 +247,7 @@ window.openSaveModal = async (data, encodedUrl) => {
       const res = await fetch('/api/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
+        body: JSON.stringify({ url, mode: 'video' })
       });
       if (!res.ok) throw new Error();
       const d = await res.json();
@@ -284,13 +284,10 @@ window.saveToTab = async (tab) => {
   }
 };
 
-// ══════════════════════════════════════════
-//  보관함 로드
-// ══════════════════════════════════════════
+// 보관함 로드
 function loadLibrary(tab) {
   if (!currentUser) return;
   currentTab = tab;
-
   if (libUnsubscribe) { libUnsubscribe(); libUnsubscribe = null; }
 
   const listEl = document.getElementById('libraryList');
@@ -309,7 +306,6 @@ function loadLibrary(tab) {
       emptyEl.classList.add('hidden');
       listEl.innerHTML = snap.docs.map(d => {
         const item = d.data();
-        // ── 핵심 수정: url 필드 우선, 없으면 id로 구성 ──
         const playTarget = item.url
           ? encodeURIComponent(item.url)
           : encodeURIComponent('https://www.youtube.com/watch?v=' + item.id);
@@ -346,9 +342,6 @@ window.delItem = async (id) => {
   }
 };
 
-// ══════════════════════════════════════════
-//  보관함 탭 전환
-// ══════════════════════════════════════════
 document.querySelectorAll('.lib-tab').forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll('.lib-tab').forEach(b => b.classList.remove('active'));
@@ -357,9 +350,6 @@ document.querySelectorAll('.lib-tab').forEach(btn => {
   };
 });
 
-// ══════════════════════════════════════════
-//  유틸
-// ══════════════════════════════════════════
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;

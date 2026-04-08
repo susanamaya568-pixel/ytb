@@ -588,7 +588,6 @@ body {
   border-radius: 6px;
   background: var(--bg3);
 }
-
 .feed-info-row {
   flex: 1;
   display: flex;

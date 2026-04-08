@@ -5,6 +5,8 @@ import {
   addDoc, serverTimestamp, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+const API_BASE = 'https://ytb-jdoz.onrender.com';
+
 const firebaseConfig = {
   apiKey: "AIzaSyAkDP9ZFuzcojt1nI81CZOHfs4DchNPGOA",
   authDomain: "ytbe-e6df1.firebaseapp.com",
@@ -24,7 +26,6 @@ let libUnsubscribe = null;
 
 const videoEl = document.getElementById('videoEl');
 
-// 음악용 오디오 엘리먼트 동적 생성
 let audioEl = document.getElementById('audioEl');
 if (!audioEl) {
   audioEl = document.createElement('audio');
@@ -34,7 +35,6 @@ if (!audioEl) {
   videoEl.parentNode.insertBefore(audioEl, videoEl.nextSibling);
 }
 
-// PIN
 const pins = ['p1','p2','p3','p4'].map(id => document.getElementById(id));
 pins.forEach((p, i) => {
   if (!p) return;
@@ -50,7 +50,6 @@ document.getElementById('nickInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') pins[0].focus();
 });
 
-// 로그인
 document.getElementById('loginBtn').onclick = async () => {
   const nick = document.getElementById('nickInput').value.trim().toLowerCase();
   const pin = pins.map(p => p.value).join('');
@@ -101,7 +100,6 @@ window.showLibrary = () => {
   loadLibrary(currentTab);
 };
 
-// 검색
 document.getElementById('searchBtn').onclick = doSearch;
 document.getElementById('searchInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
@@ -123,7 +121,7 @@ async function doSearch() {
   document.getElementById('emptyHome').classList.add('hidden');
 
   try {
-    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
     if (!res.ok) throw new Error('search failed');
     const results = await res.json();
 
@@ -156,11 +154,8 @@ async function doSearch() {
   }
 }
 
-// ══════════════════════════════════════════
-//  resolve helper — server.py와 동일한 방식
-// ══════════════════════════════════════════
 async function resolveUrl(url, mode = 'video') {
-  const res = await fetch('/api/resolve', {
+  const res = await fetch(`${API_BASE}/api/resolve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url, mode })
@@ -171,9 +166,6 @@ async function resolveUrl(url, mode = 'video') {
   return data;
 }
 
-// ══════════════════════════════════════════
-//  검색결과 클릭 → resolve → 즉시 재생
-// ══════════════════════════════════════════
 window.playFromSearch = async (idx) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
   const item = window._searchResults?.[idx];
@@ -208,10 +200,6 @@ window.playFromSearch = async (idx) => {
   }
 };
 
-// ══════════════════════════════════════════
-//  보관함 재생 — 저장된 stream_url 바로 사용
-//  (server.py 방식과 동일)
-// ══════════════════════════════════════════
 window.playFromLibrary = (streamUrl, audioUrl, title, channel, tabType) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
 
@@ -247,10 +235,6 @@ document.getElementById('saveFromPlayer').onclick = () => {
   document.getElementById('saveModal').classList.remove('hidden');
 };
 
-// ══════════════════════════════════════════
-//  보관함 저장 — resolve 후 stream_url까지 저장
-//  (server.py의 addUrl과 동일한 방식)
-// ══════════════════════════════════════════
 window.openSaveModalFromSearch = (idx) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
   const item = window._searchResults?.[idx];
@@ -272,19 +256,15 @@ document.getElementById('saveModal').onclick = (e) => {
   if (e.target === document.getElementById('saveModal')) closeModal();
 };
 
-// 저장 시 resolve → stream_url까지 Firestore에 저장
 window.saveToTab = async (tab) => {
   if (!currentItemForSave || !currentUser) return;
   closeModal();
-
   showToast("저장 중...");
-
   try {
     const mode = tab === 'music' ? 'music' : 'video';
     const url = currentItemForSave.url ||
       `https://www.youtube.com/watch?v=${currentItemForSave.id}`;
 
-    // resolve해서 stream_url 확보
     const data = await resolveUrl(url, mode);
 
     await addDoc(collection(db, "users", currentUser, tab), {
@@ -306,7 +286,6 @@ window.saveToTab = async (tab) => {
   }
 };
 
-// 보관함 로드 — stream_url 바로 재생
 function loadLibrary(tab) {
   if (!currentUser) return;
   currentTab = tab;
@@ -328,7 +307,6 @@ function loadLibrary(tab) {
       emptyEl.classList.add('hidden');
       listEl.innerHTML = snap.docs.map(d => {
         const item = d.data();
-        // stream_url을 JS에 직접 넘겨서 재생 시 resolve 불필요
         const sUrl = encodeURIComponent(item.stream_url || '');
         const aUrl = encodeURIComponent(item.audio_url || item.stream_url || '');
         const title = encodeURIComponent(item.title || '');

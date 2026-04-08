@@ -28,17 +28,9 @@ def search():
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        'skip_download': True,
         'noplaylist': True,
-        'socket_timeout': 5,  # 8 → 5
-        'format': 'best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best',
-        'extractor_args': {
-            'youtube': {
-                'skip': ['hls', 'dash', 'translated_subs'],
-                'player_client': ['android'],  # ← 이거 추가, android가 제일 빠름
-            }
-        },
-        'geo_bypass': True,
+        'extract_flat': True,
+        'socket_timeout': 8,
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -57,6 +49,7 @@ def search():
             return jsonify(results)
     except Exception as e:
         print(f"[search error] {e}")
+        traceback.print_exc()
         return jsonify([])
 
 
@@ -85,12 +78,11 @@ def resolve():
             'skip_download': True,
             'noplaylist': True,
             'socket_timeout': 8,
-            # best[ext=mp4]/best 로 포맷 하나만 → 처리 최소화
             'format': 'best[ext=mp4][height<=720]/best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best',
             'extractor_args': {
                 'youtube': {
                     'skip': ['hls', 'dash', 'translated_subs'],
-                    #'player_skip': ['webpage', 'configs', 'js'],
+                    'player_client': ['android'],
                 }
             },
             'geo_bypass': True,

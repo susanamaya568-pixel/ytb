@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YT.PLAY — Premium Experience</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="loginOverlay" class="login-overlay">
+        <div class="login-box">
+            <h1 class="login-logo">YT.<span>PLAY</span></h1>
+            <div class="login-field">
+                <label>NICKNAME</label>
+                <input type="text" id="nickInput" placeholder="닉네임 입력">
+            </div>
+            <div class="login-field">
+                <label>4-DIGIT PIN</label>
+                <div class="pin-row">
+                    <input type="password" class="pin-input" maxlength="1" id="pin1">
+                    <input type="password" class="pin-input" maxlength="1" id="pin2">
+                    <input type="password" class="pin-input" maxlength="1" id="pin3">
+                    <input type="password" class="pin-input" maxlength="1" id="pin4">
+                </div>
+            </div>
+            <button id="loginBtn" class="login-btn">접속하기</button>
+        </div>
+    </div>
+
+    <div class="app">
+        <header>
+            <div class="logo">YT.<span>PLAY</span></div>
+            <div class="input-row">
+                <input id="urlInput" class="url-input" type="text" placeholder="YouTube 링크">
+                <select id="qualitySel" class="quality-sel">
+                    <option value="1080">1080p</option>
+                    <option value="720" selected>720p</option>
+                    <option value="480">480p</option>
+                    <option value="360">360p</option>
+                </select>
+                <button id="addBtn" class="add-btn">+ 추가</button>
+            </div>
+            <div class="header-right">
+                <button id="audioModeBtn" class="icon-btn" title="듣기 모드">🎧</button>
+                <button id="themeBtn" class="icon-btn">🌓</button>
+                <div id="fbStatus" class="fb-status">● 연결 대기</div>
+            </div>
+        </header>
+
+        <main class="player-area">
+            <div id="playerContainer" class="video-wrapper">
+                <video id="videoEl" controls playsinline></video>
+                <div id="audioVisualizer" class="audio-overlay" style="display:none">
+                    <div class="audio-eq"><span></span><span></span><span></span><span></span></div>
+                    <p>듣기 모드 재생 중 (데이터 절약)</p>
+                </div>
+            </div>
+            </main>
+
+        <aside class="queue-panel">
+            <div class="queue-header">재생목록 <span id="queueCount">0개</span></div>
+            <div id="queueList" class="queue-list"></div>
+        </aside>
+
+        <footer class="controls-bar">
+            </footer>
+    </div>
+    <script type="module" src="app.js"></script>
+</body>
+</html>

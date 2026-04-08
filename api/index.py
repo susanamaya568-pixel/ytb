@@ -42,4 +42,4 @@ def resolve():
             audio_url = next((f['url'] for f in info.get('formats', []) if f.get('acodec')!='none' and f.get('vcodec')=='none'), info.get('url'))
             return jsonify({'id': vid, 'title': info.get('title'), 'channel': info.get('uploader'),
                             'thumbnail': info.get('thumbnail'), 'stream_url': info.get('url'), 'audio_url': audio_url})
-    except: return jsonify({'error': '지연됨'}), 500
+    except: return jsonify({'error': 'Timeout'}), 500

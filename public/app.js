@@ -12,8 +12,8 @@ const firebaseConfig = {
 };
 const db = getFirestore(initializeApp(firebaseConfig));
 
-let currentUser = localStorage.getItem('yt_sess'); 
-let currentTab = 'videos', audioMode = false, queue = [], currentIdx = -1;
+let currentUser = localStorage.getItem('yt_user'); 
+let currentTab = 'videos', audioMode = false, queue = [];
 const videoEl = document.getElementById('videoEl');
 
 // ── PIN 자동 이동 ──
@@ -31,15 +31,15 @@ pins.forEach((p, i) => {
 document.getElementById('loginBtn').onclick = async () => {
     const nick = document.getElementById('nickInput').value.trim().toLowerCase();
     const pin = pins.map(p => p.value).join('');
-    if(!nick || pin.length < 4) return alert("정보 입력!");
+    if(!nick || pin.length < 4) return alert("정보를 모두 입력하세요.");
 
     const userRef = doc(db, "users", nick);
     const snap = await getDoc(userRef);
-    if(snap.exists() && snap.data().pin !== pin) return alert("PIN 틀림!");
+    if(snap.exists() && snap.data().pin !== pin) return alert("PIN 번호가 틀립니다.");
     if(!snap.exists()) await setDoc(userRef, { pin, createdAt: new Date() });
 
     currentUser = nick;
-    localStorage.setItem('yt_sess', nick);
+    localStorage.setItem('yt_user', nick);
     document.getElementById('loginOverlay').classList.add('d-none');
     showHome();
 };
@@ -48,7 +48,7 @@ if(currentUser) {
     document.getElementById('loginOverlay').classList.add('d-none');
 }
 
-// ── 화면 전환 ──
+// ── 페이지 전환 ──
 window.showHome = () => {
     document.getElementById('homePage').style.display = 'block';
     document.getElementById('libraryPage').style.display = 'none';
@@ -59,61 +59,71 @@ window.showLibrary = () => {
     loadLibrary('videos');
 };
 
-// ── 검색 및 추가 ──
+// ── 검색 및 결과 출력 ──
 document.getElementById('searchBtn').onclick = async () => {
     const q = document.getElementById('searchInput').value;
     const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
     const results = await res.json();
-    renderFeed(results, 'searchList', true);
-};
-
-function renderFeed(items, listId, isSearch) {
-    const listEl = document.getElementById(listId);
-    queue = items;
-    listEl.innerHTML = items.map((item, i) => `
-        <div class="list-group-item d-flex gap-3 py-3 border-0 align-items-center" onclick="window._playUrl('${item.url}')">
-            <img src="${item.thumbnail}" class="rounded" style="width:100px; aspect-ratio:16/9; object-fit:cover;">
-            <div class="flex-grow-1 overflow-hidden">
-                <div class="fw-bold text-truncate small">${item.title}</div>
-                <div class="text-muted" style="font-size:11px;">${item.channel}</div>
+    
+    const searchList = document.getElementById('searchList');
+    searchList.innerHTML = results.map(item => `
+        <div class="col">
+            <div class="card h-100 border-0 shadow-sm overflow-hidden" onclick="window._playUrl('${item.url}')">
+                <img src="${item.thumbnail}" class="card-img-top">
+                <div class="card-body p-2 d-flex justify-content-between align-items-center">
+                    <div class="overflow-hidden">
+                        <div class="fw-bold small text-truncate">${item.title}</div>
+                        <div class="text-muted" style="font-size:0.7rem;">${item.channel}</div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger rounded-circle" onclick="event.stopPropagation(); window._save('${item.url}')">+</button>
+                </div>
             </div>
-            <button class="btn btn-sm btn-light" onclick="event.stopPropagation(); ${isSearch ? `window._save('${item.url}')` : `window._del('${item.firestoreId}')` }">
-                ${isSearch ? '+' : '×'}
-            </button>
         </div>
     `).join('');
-}
+};
 
 window._save = async (url) => {
     const res = await fetch('/api/resolve', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url }) });
     const data = await res.json();
-    const tab = confirm("노래로 저장할까요? (취소 시 동영상)") ? "music" : "videos";
+    const tab = confirm("노래목록에 추가할까요? (취소 시 동영상)") ? "music" : "videos";
     await addDoc(collection(db, "users", currentUser, tab), { ...data, addedAt: serverTimestamp() });
+    alert("보관함에 추가되었습니다.");
 };
 
-window._del = async (id) => {
-    if(confirm("삭제하시겠습니까?")) await deleteDoc(doc(db, "users", currentUser, currentTab, id));
+window._playUrl = async (url) => {
+    const res = await fetch('/api/resolve', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url }) });
+    const data = await res.json();
+    document.getElementById('playerView').classList.remove('d-none');
+    videoEl.src = data.stream_url;
+    videoEl.play();
 };
 
 function loadLibrary(tab) {
     currentTab = tab;
     onSnapshot(query(collection(db, "users", currentUser, tab), orderBy("addedAt", "desc")), (snap) => {
-        const items = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
-        renderFeed(items, 'libraryList', false);
+        const listEl = document.getElementById('libraryList');
+        listEl.innerHTML = snap.docs.map(d => {
+            const item = d.data();
+            return `
+                <div class="list-group-item d-flex gap-3 align-items-center border-0 py-2" onclick="window._playUrl('https://youtu.be/${item.id}')">
+                    <img src="${item.thumbnail}" class="rounded" style="width:80px; aspect-ratio:16/9; object-fit:cover;">
+                    <div class="flex-grow-1 overflow-hidden">
+                        <div class="fw-bold small text-truncate">${item.title}</div>
+                        <div class="text-muted small">${item.channel}</div>
+                    </div>
+                    <button class="btn btn-sm text-danger" onclick="event.stopPropagation(); window._del('${d.id}')">✕</button>
+                </div>
+            `;
+        }).join('');
     });
 }
+
+window._del = async (id) => {
+    if(confirm("정말 삭제하시겠습니까?")) await deleteDoc(doc(db, "users", currentUser, currentTab, id));
+};
 
 document.querySelectorAll('[data-tab]').forEach(btn => btn.onclick = (e) => {
     document.querySelectorAll('[data-tab]').forEach(b => b.classList.remove('active'));
     e.target.classList.add('active');
     loadLibrary(e.target.dataset.tab);
 });
-
-window._playUrl = async (url) => {
-    const res = await fetch('/api/resolve', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url }) });
-    const data = await res.json();
-    document.getElementById('playerView').style.display = 'block';
-    videoEl.src = data.stream_url;
-    videoEl.play();
-    document.getElementById('npTitle').textContent = data.title;
-};

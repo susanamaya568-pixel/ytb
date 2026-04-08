@@ -122,6 +122,14 @@ document.getElementById('searchInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
 
+// 보관함에서 검색창 클릭 → 홈으로 이동
+document.getElementById('searchInput').addEventListener('focus', () => {
+  if (!document.getElementById('libraryPage').classList.contains('hidden')) {
+    showHome();
+    setTimeout(() => document.getElementById('searchInput').focus(), 50);
+  }
+});
+
 async function doSearch() {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
   const q = document.getElementById('searchInput').value.trim();
@@ -142,7 +150,10 @@ async function doSearch() {
       return;
     }
 
-    list.innerHTML = results.map(item => `
+    // 검색결과를 전역 배열에 저장 → + 버튼이 인덱스로 즉시 접근
+    window._searchResults = results;
+
+    list.innerHTML = results.map((item, idx) => `
       <div class="feed-item" onclick="playUrl('${encodeURIComponent(item.url)}', this)">
         <div class="feed-thumb-wrap">
           <img class="feed-thumb" src="${item.thumbnail}" alt="" loading="lazy">
@@ -153,7 +164,7 @@ async function doSearch() {
             <div class="feed-title">${escHtml(item.title)}</div>
             <div class="feed-meta">${escHtml(item.channel)}</div>
           </div>
-          <button class="feed-add-btn" onclick="event.stopPropagation(); openSaveModal(null, '${encodeURIComponent(item.url)}')" title="보관함 추가">
+          <button class="feed-add-btn" onclick="event.stopPropagation(); openSaveModalFromSearch(${idx})" title="보관함 추가">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
           </button>
         </div>
@@ -218,6 +229,22 @@ document.getElementById('saveFromPlayer').onclick = () => {
 // ══════════════════════════════════════════
 //  보관함 저장 모달
 // ══════════════════════════════════════════
+// 검색결과 + 버튼: resolve 없이 즉시 모달 오픈
+window.openSaveModalFromSearch = (idx) => {
+  if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
+  const item = window._searchResults?.[idx];
+  if (!item) return;
+  // 검색 데이터를 저장용 객체로 변환 (stream_url 없이 저장, 재생 시 resolve)
+  currentItemForSave = {
+    id: item.id,
+    title: item.title,
+    channel: item.channel,
+    thumbnail: item.thumbnail,
+    url: item.url,
+  };
+  document.getElementById('saveModal').classList.remove('hidden');
+};
+
 window.openSaveModal = async (data, encodedUrl) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
 

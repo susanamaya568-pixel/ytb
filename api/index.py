@@ -13,7 +13,7 @@ CORS(app, resources={r"/api/*": {
     "allow_headers": ["Content-Type", "Authorization"]
 }})
 
-COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+COOKIE_FILE = os.path.join(os.path.dirname(__file__), '..', 'cookies.txt')
 
 YDL_BASE_OPTS = {
     'quiet': True,

@@ -25,15 +25,38 @@ YDL_BASE_OPTS = {
     'no_warnings': True,
     'skip_download': True,
     'noplaylist': True,
-    'socket_timeout': 8,
-    'extractor_args': {
-        'youtube': {
-            'skip': ['hls', 'dash', 'translated_subs'],
-            'player_client': ['ios'],
-        }
-    },
+    'socket_timeout': 10,
     'geo_bypass': True,
 }
+
+
+def get_stream_info(canonical, mode):
+    client_lists = [
+        ['web', 'android'],
+        ['android'],
+        ['tv_embedded'],
+        ['web'],
+    ]
+    fmt = 'best[ext=mp4][height<=720]/best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best'
+    last_err = None
+    for clients in client_lists:
+        try:
+            opts = {
+                **YDL_BASE_OPTS,
+                'format': fmt,
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['hls', 'dash', 'translated_subs'],
+                        'player_client': clients,
+                    }
+                },
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(canonical, download=False)
+        except Exception as e:
+            last_err = e
+            continue
+    raise last_err
 
 
 @app.route('/api/search', methods=['GET'])
@@ -89,13 +112,7 @@ def resolve():
 
         canonical = f'https://www.youtube.com/watch?v={vid}'
 
-        ydl_opts = {
-            **YDL_BASE_OPTS,
-            'format': 'best[ext=mp4][height<=720]/best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best',
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(canonical, download=False)
+        info = get_stream_info(canonical, mode)
 
         stream_url = info.get('url', '')
         if not stream_url:
@@ -113,14 +130,11 @@ def resolve():
                 audio_url = f['url']
                 break
 
-        # 브라우저에는 stream_url 대신 /api/stream 프록시 경로를 줌
-        # vid를 키로 써서 다시 resolve → 프록시로 스트리밍
         return jsonify({
             'id':         vid,
             'title':      info.get('title', ''),
             'channel':    info.get('uploader') or info.get('channel', ''),
             'thumbnail':  info.get('thumbnail', f'https://i.ytimg.com/vi/{vid}/mqdefault.jpg'),
-            # 브라우저가 사용할 URL은 Render 프록시 경로
             'stream_url': f'/api/stream?v={vid}&mode=video',
             'audio_url':  f'/api/stream?v={vid}&mode=music',
         })
@@ -142,10 +156,6 @@ def resolve():
 
 @app.route('/api/stream', methods=['GET'])
 def stream():
-    """
-    Render 서버가 YouTube stream을 직접 받아서 브라우저에 중계.
-    브라우저 IP가 아닌 Render IP로 YouTube에 요청하므로 차단 없음.
-    """
     vid = request.args.get('v', '').strip()
     mode = request.args.get('mode', 'video')
 
@@ -154,16 +164,9 @@ def stream():
 
     canonical = f'https://www.youtube.com/watch?v={vid}'
 
-    ydl_opts = {
-        **YDL_BASE_OPTS,
-        'format': 'best[ext=mp4][height<=720]/best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best',
-    }
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(canonical, download=False)
+        info = get_stream_info(canonical, mode)
 
-        # mode에 따라 적절한 URL 선택
         target_url = None
         if mode == 'music':
             for f in info.get('formats', []):
@@ -182,7 +185,6 @@ def stream():
         if not target_url:
             return jsonify({'error': '스트림 URL 없음'}), 500
 
-        # Range 헤더 전달 (브라우저 seek 지원)
         range_header = request.headers.get('Range', '')
         headers = {
             'User-Agent': 'Mozilla/5.0',
@@ -193,10 +195,8 @@ def stream():
 
         yt_resp = requests.get(target_url, headers=headers, stream=True, timeout=15)
 
-        # Content-Type 결정
         content_type = yt_resp.headers.get('Content-Type', 'video/mp4' if mode != 'music' else 'audio/mp4')
 
-        # 응답 헤더 구성
         resp_headers = {
             'Content-Type': content_type,
             'Accept-Ranges': 'bytes',
@@ -207,10 +207,10 @@ def stream():
         if 'Content-Range' in yt_resp.headers:
             resp_headers['Content-Range'] = yt_resp.headers['Content-Range']
 
-        status = yt_resp.status_code  # 200 or 206 (partial content)
+        status = yt_resp.status_code
 
         def generate():
-            for chunk in yt_resp.iter_content(chunk_size=1024 * 64):  # 64KB 청크
+            for chunk in yt_resp.iter_content(chunk_size=1024 * 64):
                 if chunk:
                     yield chunk
 

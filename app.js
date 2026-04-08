@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // ══════════════════════════════════════════
-//  Firebase 설정 (여기에 본인 설정 입력)
+//  Firebase 설정
 // ══════════════════════════════════════════
 const firebaseConfig = {
   apiKey: "AIzaSyAkDP9ZFuzcojt1nI81CZOHfs4DchNPGOA",
@@ -25,7 +25,7 @@ const db = getFirestore(initializeApp(firebaseConfig));
 // ══════════════════════════════════════════
 let currentUser = localStorage.getItem('yt_user');
 let currentTab = 'videos';
-let currentItemForSave = null; // 보관함에 저장할 데이터
+let currentItemForSave = null;
 let libUnsubscribe = null;
 
 const videoEl = document.getElementById('videoEl');
@@ -45,7 +45,6 @@ pins.forEach((p, i) => {
   };
 });
 
-// Enter로 로그인
 document.getElementById('nickInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') pins[0].focus();
 });
@@ -79,7 +78,6 @@ document.getElementById('loginBtn').onclick = async () => {
   }
 };
 
-// 이미 로그인된 경우
 if (currentUser) {
   document.getElementById('loginOverlay').classList.add('hidden');
 }
@@ -122,7 +120,6 @@ document.getElementById('searchInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
 
-// 보관함에서 검색창 클릭 → 홈으로 이동
 document.getElementById('searchInput').addEventListener('focus', () => {
   if (!document.getElementById('libraryPage').classList.contains('hidden')) {
     showHome();
@@ -150,16 +147,14 @@ async function doSearch() {
       return;
     }
 
-    // 검색결과를 전역 배열에 저장 → + 버튼이 인덱스로 즉시 접근
     window._searchResults = results;
 
+    // ── 가로형 리스트 UI (썸네일 왼쪽, 텍스트+버튼 오른쪽) ──
     list.innerHTML = results.map((item, idx) => `
-      <div class="feed-item" onclick="playUrl('${encodeURIComponent(item.url)}', this)">
-        <div class="feed-thumb-wrap">
-          <img class="feed-thumb" src="${item.thumbnail}" alt="" loading="lazy">
-        </div>
-        <div class="feed-info">
-          <div class="feed-ch-icon">${item.channel ? item.channel[0].toUpperCase() : '?'}</div>
+      <div class="feed-item feed-item--row" onclick="playUrl('${encodeURIComponent(item.url)}', this)">
+        <img class="feed-thumb-sm" src="${item.thumbnail}" alt="" loading="lazy">
+        <div class="feed-info-row">
+          <div class="feed-ch-dot">${item.channel ? item.channel[0].toUpperCase() : '?'}</div>
           <div class="feed-text">
             <div class="feed-title">${escHtml(item.title)}</div>
             <div class="feed-meta">${escHtml(item.channel)}</div>
@@ -208,10 +203,7 @@ window.playUrl = async (encodedUrl, el) => {
     playerChannel.textContent = data.channel || '';
     videoEl.play().catch(() => {});
 
-    // 플레이어의 보관함 추가 버튼에 데이터 연결
     currentItemForSave = data;
-
-    // 스크롤 to player
     playerView.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     showToast("영상을 불러올 수 없어요 (서버 오류)");
@@ -220,7 +212,6 @@ window.playUrl = async (encodedUrl, el) => {
   }
 };
 
-// 플레이어 내 보관함 추가 버튼
 document.getElementById('saveFromPlayer').onclick = () => {
   if (!currentItemForSave) return;
   openSaveModal(currentItemForSave, null);
@@ -229,18 +220,16 @@ document.getElementById('saveFromPlayer').onclick = () => {
 // ══════════════════════════════════════════
 //  보관함 저장 모달
 // ══════════════════════════════════════════
-// 검색결과 + 버튼: resolve 없이 즉시 모달 오픈
 window.openSaveModalFromSearch = (idx) => {
   if (!currentUser) { showToast("먼저 로그인 해주세요"); return; }
   const item = window._searchResults?.[idx];
   if (!item) return;
-  // 검색 데이터를 저장용 객체로 변환 (stream_url 없이 저장, 재생 시 resolve)
   currentItemForSave = {
     id: item.id,
     title: item.title,
     channel: item.channel,
     thumbnail: item.thumbnail,
-    url: item.url,
+    url: item.url,   // ← url 저장 (재생 시 사용)
   };
   document.getElementById('saveModal').classList.remove('hidden');
 };
@@ -275,7 +264,6 @@ window.closeModal = () => {
   document.getElementById('saveModal').classList.add('hidden');
 };
 
-// 모달 배경 클릭으로 닫기
 document.getElementById('saveModal').onclick = (e) => {
   if (e.target === document.getElementById('saveModal')) closeModal();
 };
@@ -303,7 +291,6 @@ function loadLibrary(tab) {
   if (!currentUser) return;
   currentTab = tab;
 
-  // 이전 구독 해제
   if (libUnsubscribe) { libUnsubscribe(); libUnsubscribe = null; }
 
   const listEl = document.getElementById('libraryList');
@@ -322,8 +309,12 @@ function loadLibrary(tab) {
       emptyEl.classList.add('hidden');
       listEl.innerHTML = snap.docs.map(d => {
         const item = d.data();
+        // ── 핵심 수정: url 필드 우선, 없으면 id로 구성 ──
+        const playTarget = item.url
+          ? encodeURIComponent(item.url)
+          : encodeURIComponent('https://www.youtube.com/watch?v=' + item.id);
         return `
-          <div class="lib-item" onclick="playUrl('${encodeURIComponent('https://youtu.be/' + item.id)}', this)">
+          <div class="lib-item" onclick="playUrl('${playTarget}', this)">
             <img class="lib-thumb" src="${item.thumbnail || ''}" alt="" loading="lazy">
             <div class="lib-text">
               <div class="lib-title">${escHtml(item.title || '')}</div>

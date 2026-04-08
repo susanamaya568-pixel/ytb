@@ -78,11 +78,11 @@ def resolve():
             'noplaylist': True,
             'socket_timeout': 8,
             # best[ext=mp4]/best 로 포맷 하나만 → 처리 최소화
-            'format': 'best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best',
+            'format': 'best[ext=mp4][height<=720]/best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best',
             'extractor_args': {
                 'youtube': {
                     'skip': ['hls', 'dash', 'translated_subs'],
-                    'player_skip': ['webpage', 'configs', 'js'],
+                    #'player_skip': ['webpage', 'configs', 'js'],
                 }
             },
             'geo_bypass': True,

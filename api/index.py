@@ -25,40 +25,66 @@ YDL_BASE_OPTS = {
     'no_warnings': True,
     'skip_download': True,
     'noplaylist': True,
-    'socket_timeout': 10,
+    'socket_timeout': 15,
     'geo_bypass': True,
 }
 
+# ─────────────────────────────────────────────────────────
+# YouTube 봇 차단 우회 핵심:
+#   1) tv_embedded / ios 클라이언트 사용 (서명 불필요)
+#   2) extractor_args 로 po_token / player_skip 설정
+# ─────────────────────────────────────────────────────────
+CLIENT_FALLBACKS = [
+    # (clients, extra_args)
+    (['tv_embedded'],        {'skip': ['hls', 'dash', 'translated_subs']}),
+    (['ios'],                {'skip': ['hls', 'dash', 'translated_subs']}),
+    (['android_vr'],         {'skip': ['hls', 'dash', 'translated_subs']}),
+    (['mweb'],               {'skip': ['hls', 'dash', 'translated_subs']}),
+    (['web_creator'],        {'skip': ['hls', 'dash', 'translated_subs']}),
+    (['android_embedded'],   {'skip': ['hls', 'dash', 'translated_subs']}),
+    (['web', 'android'],     {'skip': ['hls', 'dash', 'translated_subs']}),
+]
+
 
 def get_stream_info(canonical, mode):
-    client_lists = [
-        ['web', 'android'],
-        ['android'],
-        ['tv_embedded'],
-        ['web'],
-    ]
-    fmt = 'best[ext=mp4][height<=720]/best[ext=mp4]/best' if mode != 'music' else 'bestaudio/best'
+    fmt = (
+        'bestaudio[ext=m4a]/bestaudio/best'
+        if mode == 'music'
+        else 'best[ext=mp4][height<=720]/best[ext=mp4]/best[height<=720]/best'
+    )
     last_err = None
-    for clients in client_lists:
+    for clients, extra in CLIENT_FALLBACKS:
         try:
             opts = {
                 **YDL_BASE_OPTS,
                 'format': fmt,
                 'extractor_args': {
                     'youtube': {
-                        'skip': ['hls', 'dash', 'translated_subs'],
+                        **extra,
                         'player_client': clients,
                     }
                 },
             }
             with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(canonical, download=False)
+                info = ydl.extract_info(canonical, download=False)
+                if info:
+                    return info
+        except yt_dlp.utils.DownloadError as e:
+            msg = str(e)
+            # 연령 제한 / 비공개는 재시도해도 소용없음 → 바로 raise
+            if any(k in msg for k in ['Sign in', 'age', 'private', 'Private', 'members']):
+                raise
+            last_err = e
+            continue
         except Exception as e:
             last_err = e
             continue
-    raise last_err
+    raise last_err or Exception('모든 클라이언트 시도 실패')
 
 
+# ─────────────────────────────────────────────────────────
+# 검색
+# ─────────────────────────────────────────────────────────
 @app.route('/api/search', methods=['GET'])
 def search():
     query_str = request.args.get('q', '').strip()
@@ -70,21 +96,28 @@ def search():
         'no_warnings': True,
         'noplaylist': True,
         'extract_flat': True,
-        'socket_timeout': 8,
+        'socket_timeout': 10,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv_embedded'],
+                'skip': ['hls', 'dash', 'translated_subs'],
+            }
+        },
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch8:{query_str}", download=False)
+            info = ydl.extract_info(f"ytsearch10:{query_str}", download=False)
             results = []
             for e in info.get('entries', []):
                 if not e:
                     continue
+                vid_id = e.get('id', '')
                 results.append({
-                    'id': e.get('id', ''),
-                    'title': e.get('title', ''),
-                    'channel': e.get('uploader') or e.get('channel', ''),
-                    'thumbnail': f"https://i.ytimg.com/vi/{e.get('id','')}/mqdefault.jpg",
-                    'url': f"https://www.youtube.com/watch?v={e.get('id','')}",
+                    'id':        vid_id,
+                    'title':     e.get('title', ''),
+                    'channel':   e.get('uploader') or e.get('channel', ''),
+                    'thumbnail': f"https://i.ytimg.com/vi/{vid_id}/mqdefault.jpg",
+                    'url':       f"https://www.youtube.com/watch?v={vid_id}",
                 })
             return jsonify(results)
     except Exception as e:
@@ -93,6 +126,9 @@ def search():
         return jsonify([])
 
 
+# ─────────────────────────────────────────────────────────
+# resolve – stream_url / audio_url 반환
+# ─────────────────────────────────────────────────────────
 @app.route('/api/resolve', methods=['POST'])
 def resolve():
     try:
@@ -100,7 +136,7 @@ def resolve():
         if not data:
             return jsonify({'error': '요청 데이터 없음'}), 400
 
-        url = data.get('url', '').strip()
+        url  = data.get('url',  '').strip()
         mode = data.get('mode', 'video')
 
         if not url:
@@ -111,9 +147,9 @@ def resolve():
             return jsonify({'error': '유효하지 않은 YouTube URL'}), 400
 
         canonical = f'https://www.youtube.com/watch?v={vid}'
+        info      = get_stream_info(canonical, mode)
 
-        info = get_stream_info(canonical, mode)
-
+        # 최선의 스트림 URL 선택
         stream_url = info.get('url', '')
         if not stream_url:
             for f in reversed(info.get('formats', [])):
@@ -124,9 +160,14 @@ def resolve():
         if not stream_url:
             return jsonify({'error': '스트림 URL을 가져올 수 없습니다'}), 500
 
+        # 오디오 전용 URL (music 탭용)
         audio_url = stream_url
         for f in info.get('formats', []):
-            if f.get('acodec') != 'none' and f.get('vcodec') == 'none' and f.get('url'):
+            if (
+                f.get('acodec') != 'none'
+                and f.get('vcodec') == 'none'
+                and f.get('url')
+            ):
                 audio_url = f['url']
                 break
 
@@ -142,21 +183,26 @@ def resolve():
     except yt_dlp.utils.DownloadError as e:
         msg = str(e)
         print(f"[resolve DownloadError] {msg}")
-        if 'Sign in' in msg or 'age' in msg.lower():
-            return jsonify({'error': '연령 제한 또는 로그인 필요 영상입니다'}), 403
-        if 'Private' in msg or 'private' in msg:
+        if any(k in msg for k in ['Sign in', 'age']):
+            return jsonify({'error': '연령 제한 또는 로그인이 필요한 영상입니다'}), 403
+        if any(k in msg for k in ['Private', 'private']):
             return jsonify({'error': '비공개 영상입니다'}), 403
-        return jsonify({'error': '영상을 가져올 수 없어요'}), 500
+        if 'members' in msg:
+            return jsonify({'error': '멤버십 전용 영상입니다'}), 403
+        return jsonify({'error': f'영상을 가져올 수 없어요: {msg[:120]}'}), 500
 
     except Exception as e:
         print(f"[resolve error] {e}")
         traceback.print_exc()
-        return jsonify({'error': '서버 오류가 발생했어요'}), 500
+        return jsonify({'error': f'서버 오류: {str(e)[:120]}'}), 500
 
 
+# ─────────────────────────────────────────────────────────
+# stream – Range 요청 지원 프록시
+# ─────────────────────────────────────────────────────────
 @app.route('/api/stream', methods=['GET'])
 def stream():
-    vid = request.args.get('v', '').strip()
+    vid  = request.args.get('v',    '').strip()
     mode = request.args.get('mode', 'video')
 
     if not vid:
@@ -170,7 +216,11 @@ def stream():
         target_url = None
         if mode == 'music':
             for f in info.get('formats', []):
-                if f.get('acodec') != 'none' and f.get('vcodec') == 'none' and f.get('url'):
+                if (
+                    f.get('acodec') != 'none'
+                    and f.get('vcodec') == 'none'
+                    and f.get('url')
+                ):
                     target_url = f['url']
                     break
 
@@ -186,37 +236,43 @@ def stream():
             return jsonify({'error': '스트림 URL 없음'}), 500
 
         range_header = request.headers.get('Range', '')
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
+        req_headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Linux; Android 11; Pixel 5) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/90.0.4430.91 Mobile Safari/537.36'
+            ),
             'Referer': 'https://www.youtube.com/',
+            'Origin':  'https://www.youtube.com',
         }
         if range_header:
-            headers['Range'] = range_header
+            req_headers['Range'] = range_header
 
-        yt_resp = requests.get(target_url, headers=headers, stream=True, timeout=15)
+        yt_resp = requests.get(target_url, headers=req_headers, stream=True, timeout=20)
 
-        content_type = yt_resp.headers.get('Content-Type', 'video/mp4' if mode != 'music' else 'audio/mp4')
-
+        content_type = yt_resp.headers.get(
+            'Content-Type',
+            'audio/mp4' if mode == 'music' else 'video/mp4'
+        )
         resp_headers = {
-            'Content-Type': content_type,
-            'Accept-Ranges': 'bytes',
-            'Access-Control-Allow-Origin': '*',
+            'Content-Type':                 content_type,
+            'Accept-Ranges':                'bytes',
+            'Access-Control-Allow-Origin':  '*',
+            'Cache-Control':                'no-cache',
         }
         if 'Content-Length' in yt_resp.headers:
             resp_headers['Content-Length'] = yt_resp.headers['Content-Length']
         if 'Content-Range' in yt_resp.headers:
-            resp_headers['Content-Range'] = yt_resp.headers['Content-Range']
-
-        status = yt_resp.status_code
+            resp_headers['Content-Range']  = yt_resp.headers['Content-Range']
 
         def generate():
-            for chunk in yt_resp.iter_content(chunk_size=1024 * 64):
+            for chunk in yt_resp.iter_content(chunk_size=65536):
                 if chunk:
                     yield chunk
 
         return Response(
             stream_with_context(generate()),
-            status=status,
+            status=yt_resp.status_code,
             headers=resp_headers,
         )
 

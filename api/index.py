@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, Response, stream_with_context
+from flask import Flask, jsonify, request, Response, stream_with_context, make_response
 from flask_cors import CORS
 import yt_dlp
 import re
@@ -6,7 +6,21 @@ import traceback
 import requests
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {
+    "origins": "*",
+    "methods": ["GET", "POST", "OPTIONS"],
+    "allow_headers": ["Content-Type", "Authorization"]
+}})
+
+
+@app.before_request
+def handle_options():
+    if request.method == "OPTIONS":
+        res = make_response()
+        res.headers["Access-Control-Allow-Origin"] = "*"
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return res, 200
 
 
 def extract_video_id(url):
@@ -29,13 +43,7 @@ YDL_BASE_OPTS = {
     'geo_bypass': True,
 }
 
-# ─────────────────────────────────────────────────────────
-# YouTube 봇 차단 우회 핵심:
-#   1) tv_embedded / ios 클라이언트 사용 (서명 불필요)
-#   2) extractor_args 로 po_token / player_skip 설정
-# ─────────────────────────────────────────────────────────
 CLIENT_FALLBACKS = [
-    # (clients, extra_args)
     (['tv_embedded'],        {'skip': ['hls', 'dash', 'translated_subs']}),
     (['ios'],                {'skip': ['hls', 'dash', 'translated_subs']}),
     (['android_vr'],         {'skip': ['hls', 'dash', 'translated_subs']}),
@@ -71,7 +79,6 @@ def get_stream_info(canonical, mode):
                     return info
         except yt_dlp.utils.DownloadError as e:
             msg = str(e)
-            # 연령 제한 / 비공개는 재시도해도 소용없음 → 바로 raise
             if any(k in msg for k in ['Sign in', 'age', 'private', 'Private', 'members']):
                 raise
             last_err = e
@@ -82,9 +89,6 @@ def get_stream_info(canonical, mode):
     raise last_err or Exception('모든 클라이언트 시도 실패')
 
 
-# ─────────────────────────────────────────────────────────
-# 검색
-# ─────────────────────────────────────────────────────────
 @app.route('/api/search', methods=['GET'])
 def search():
     query_str = request.args.get('q', '').strip()
@@ -126,11 +130,15 @@ def search():
         return jsonify([])
 
 
-# ─────────────────────────────────────────────────────────
-# resolve – stream_url / audio_url 반환
-# ─────────────────────────────────────────────────────────
-@app.route('/api/resolve', methods=['POST'])
+@app.route('/api/resolve', methods=['POST', 'OPTIONS'])
 def resolve():
+    if request.method == 'OPTIONS':
+        res = make_response()
+        res.headers["Access-Control-Allow-Origin"] = "*"
+        res.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return res, 200
+
     try:
         data = request.get_json(force=True)
         if not data:
@@ -149,7 +157,6 @@ def resolve():
         canonical = f'https://www.youtube.com/watch?v={vid}'
         info      = get_stream_info(canonical, mode)
 
-        # 최선의 스트림 URL 선택
         stream_url = info.get('url', '')
         if not stream_url:
             for f in reversed(info.get('formats', [])):
@@ -160,7 +167,6 @@ def resolve():
         if not stream_url:
             return jsonify({'error': '스트림 URL을 가져올 수 없습니다'}), 500
 
-        # 오디오 전용 URL (music 탭용)
         audio_url = stream_url
         for f in info.get('formats', []):
             if (
@@ -197,9 +203,6 @@ def resolve():
         return jsonify({'error': f'서버 오류: {str(e)[:120]}'}), 500
 
 
-# ─────────────────────────────────────────────────────────
-# stream – Range 요청 지원 프록시
-# ─────────────────────────────────────────────────────────
 @app.route('/api/stream', methods=['GET'])
 def stream():
     vid  = request.args.get('v',    '').strip()

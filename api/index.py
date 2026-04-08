@@ -82,7 +82,7 @@ def resolve():
             'extractor_args': {
                 'youtube': {
                     'skip': ['hls', 'dash', 'translated_subs'],
-                    'player_client': ['android'],
+                    'player_client': ['ios'],  # android → ios 로 변경
                 }
             },
             'geo_bypass': True,
